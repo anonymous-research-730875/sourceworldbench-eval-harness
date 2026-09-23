@@ -1,0 +1,70 @@
+[project]
+name = "sourceworldbench-eval-harness"
+version = "0.1.0"
+description = "Offline model evaluation on sourceworldbench-benchmarks-format filled datapoints"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.4.1",
+    "datasets>=4.8.5",
+    "huggingface-hub>=0.28.0",
+    "pydantic>=2.0",
+    "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.2",
+    "typer>=0.26.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+# Test-only and lint-only: nothing under `src/` imports any of these.
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.1.1",
+    "ruff>=0.15.13",
+    "scikit-learn>=1.9.0",
+    "types-PyYAML>=6.0.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sourceworldbench_eval_harness"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+# `helpers` is the suite's own shared module, not a third-party package; without this
+# it sorts in among `pytest` and `sklearn`.
+known-first-party = ["sourceworldbench_eval_harness", "helpers"]
+
+[tool.pytest.ini_options]
+# Scopes a bare `pytest` to the suite. Without it collection also walks `src/` and
+# `outputs/`, and warns about the `Test*`-named classes there (`TestStatus`,
+# `TestStatusAnchored`, their configs) which are tasks, not tests.
+testpaths = ["tests"]
+
+# `tasks/` and `models/` each hold a `core/test_questions.py` and a
+# `status/test_base.py`. The default import mode keys modules by basename and would
+# reject the second of each pair; importlib mode keys them by path. There is no ini
+# key for it, so it goes through addopts rather than being silently ignored.
+addopts = ["--import-mode=importlib"]
+
+# `tests/helpers.py` holds the scaffolding every task's test file needs. Under
+# `importlib` mode pytest puts nothing on `sys.path`, so the shared module has to be
+# named here to be importable from the nested `tests/tasks/...` files.
+pythonpath = ["tests"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src/sourceworldbench_eval_harness"]
+
+[[tool.mypy.overrides]]
+module = "datasets.*"
+ignore_missing_imports = true

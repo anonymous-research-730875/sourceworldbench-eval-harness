@@ -1,0 +1,46 @@
+# Template for the memory-hotspot task. Copy it, replace every <placeholder>,
+# then run:
+#
+#   uv run python -m sourceworldbench_eval_harness.prediction.predict  <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.evaluation.evaluate <your-config>.yaml
+#
+# The profile is ranked by cumulative allocation and asked to depths 1 and 5.
+#
+# Four metrics per question, because counting functions, valuing them and ordering them are
+# different questions. `somers_d` spans -1 to 1, so a backwards answer is negative rather
+# than merely low.
+
+shared:
+  output_root: outputs/memory_hotspot
+  output_tag: <tag>         # artifacts land in `<output_root>_<tag>`, so give each
+                            # model its own and parallel runs stay apart
+
+task:
+  name: memory_hotspot
+  id_field: instance_id     # column identifying one patched repo state + workload
+  require_full_coverage: true   # every dataset instance must be answered
+
+load:
+  name: anonymous-research-730875/sourceworldbench-memory-hotspots
+  split: test
+  revision: 0.2.0           # pinned: unpinned runs track `main`, so a dataset push
+                            # silently changes the eval set. No `v` prefix here,
+                            # unlike the timing datasets.
+                            # TODO: memory datasets have no `v`-prefixed tags on the
+                            # Hub. Once `v` is tagged there, switch to it so versioning
+                            # is consistent everywhere
+
+predict:
+  model: <model>            # most_called | random_functions | oracle
+  params: {}                # random_functions takes { seed }; add
+                            # `questions: [cumulative_top1]` to answer a subset
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-memory-hotspots  # task grouping key (shown as its slug)
+  model: <model>                                  # name shown on the leaderboard

@@ -1,0 +1,30 @@
+# Baseline: oracle on sourceworldbench-single-test-status.
+# Copied from configs/templates/status/single_test.yaml.
+
+shared:
+  output_root: outputs/single_test_status
+  output_tag: oracle
+
+task:
+  name: single_test_status
+  id_field: instance_id
+  require_full_coverage: true
+
+load:
+  name: anonymous-research-730875/sourceworldbench-single-test-status
+  split: test
+  revision: v0.2.0
+
+predict:
+  model: oracle
+  params: {}
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-single-test-status
+  model: oracle

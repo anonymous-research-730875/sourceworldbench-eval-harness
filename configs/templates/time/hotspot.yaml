@@ -1,0 +1,51 @@
+# Template for the time-hotspot task. Copy it, replace every <placeholder>,
+# then run:
+#
+#   uv run python -m sourceworldbench_eval_harness.prediction.predict  <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.evaluation.evaluate <your-config>.yaml
+#
+# One evaluation scores every question the prediction file answers. The dataset ranks each
+# profile by exclusive time -- a function's own frame, excluding the calls the profiler
+# recorded separately -- and asks for the top 1, 5 and 20, so the metrics file holds three
+# question groups side by side, `exclusive_top1_*` through `exclusive_top20_*`.
+#
+# Each is scored four ways, because counting functions, valuing them and ordering them are
+# different questions: how much of the expected set was found (`hit_rate`), how much of its
+# time was accounted for (`time_captured`), how much cost was surfaced early (`ndcg_macro`,
+# top-heavy) and whether what was named is in the right sequence (`somers_d`, which spans
+# -1 to 1, so a backwards answer is negative rather than merely low).
+
+shared:
+  output_root: outputs/time_hotspot
+  output_tag: <tag>         # artifacts land in `<output_root>_<tag>`, so give each
+                            # model its own and parallel runs stay apart
+
+# The dataset ships `hotspots` (the true top 20) and `functions_complete_list` (the whole
+# profile, each entry carrying its exclusive time), so there are no answer columns to name
+# here.
+task:
+  name: time_hotspot
+  id_field: instance_id     # column identifying one patched repo state + workload
+  require_full_coverage: true   # every dataset instance must be answered
+
+load:
+  name: anonymous-research-730875/sourceworldbench-time-hotspots
+  split: test
+  revision: v0.2.0          # pinned: unpinned runs track `main`, so a dataset push
+                            # silently changes the eval set. The resolved commit is
+                            # recorded in the sidecar either way.
+
+predict:
+  model: <model>            # most_called | random_functions | oracle
+  params: {}                # random_functions takes { seed }; add
+                            # `questions: [exclusive_top1]` to answer a subset
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-time-hotspots  # task grouping key (shown as its slug)
+  model: <model>                                # name shown on the leaderboard

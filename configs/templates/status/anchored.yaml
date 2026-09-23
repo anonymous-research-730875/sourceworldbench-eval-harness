@@ -1,0 +1,45 @@
+# Template for the anchored test-status task. Copy it, replace every <placeholder>,
+# then run:
+#
+#   uv run python -m sourceworldbench_eval_harness.prediction.predict  <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.evaluation.evaluate <your-config>.yaml
+#
+# One evaluation scores every question the prediction file answers, so the metrics
+# file holds `binary_*`, `outcome_*` and `all_pass_*` side by side. Every test in this
+# dataset PASSED on the base commit, so a non-PASSED label is a regression the
+# patch introduced.
+
+shared:
+  output_root: outputs/test_status_anchored
+  output_tag: <tag>         # artifacts land in `<output_root>_<tag>`, so give each
+                            # model its own and parallel runs stay apart
+
+task:
+  name: test_status_anchored
+  id_field: instance_id     # column identifying one patched repo state
+  require_full_coverage: true   # every dataset instance must be answered
+                            # The dataset ships a single `tests` column per row, so
+                            # there are no columns to choose. A `calls_file` will
+                            # belong here once that file exists for this dataset.
+
+load:
+  name: anonymous-research-730875/sourceworldbench-test-status-anchored
+  split: test
+  revision: v0.2.0          # pinned: unpinned runs track `main`, so a dataset push
+                            # silently changes the eval set. The resolved commit is
+                            # recorded in the sidecar either way.
+
+predict:
+  model: <model>            # all_passed | random_status | oracle
+  params: {}                # random_status takes { seed }; add
+                            # `questions: [outcome, all_pass]` to answer a subset
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-test-status-anchored  # task grouping key (shown as its slug)
+  model: <model>                                       # name shown on the leaderboard

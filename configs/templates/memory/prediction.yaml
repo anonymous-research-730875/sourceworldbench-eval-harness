@@ -1,0 +1,49 @@
+# Template for the memory-prediction task. Copy it, replace every <placeholder>,
+# then run:
+#
+#   uv run python -m sourceworldbench_eval_harness.prediction.predict  <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.evaluation.evaluate <your-config>.yaml
+#
+# `bytes` is scored scale-free because the target spans megabytes to tens of gigabytes, so an
+# absolute error would be set by the largest instance alone. On a baseline read
+# `bytes_log_slope`: a fixed guess scores 0 there whatever its error, which separates a
+# calibration problem from no signal at all.
+#
+# Budget thresholds are decimal, and cross-checked against the dataset's own answers so a
+# revision that redefined one stops the run.
+
+shared:
+  output_root: outputs/memory_prediction
+  output_tag: <tag>         # artifacts land in `<output_root>_<tag>`, so give each
+                            # model its own and parallel runs stay apart
+
+task:
+  name: memory_prediction
+  id_field: instance_id     # column identifying one patched repo state + workload
+  require_full_coverage: true   # every dataset instance must be answered
+
+load:
+  name: anonymous-research-730875/sourceworldbench-memory-prediction
+  split: test
+  revision: 0.2.0           # pinned: unpinned runs track `main`, so a dataset push
+                            # silently changes the eval set. No `v` prefix here,
+                            # unlike the timing datasets.
+                            # TODO: memory datasets have no `v`-prefixed tags on the
+                            # Hub. Once `v` is tagged there, switch to it so versioning
+                            # is consistent everywhere
+
+predict:
+  model: <model>            # constant_bytes | random_bytes | oracle
+  params: {}                # constant_bytes takes { bytes }, random_bytes
+                            # { seed, low, high }; add `questions: [bytes]` to
+                            # answer a subset
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-memory-prediction  # task grouping key (shown as its slug)
+  model: <model>                                     # name shown on the leaderboard

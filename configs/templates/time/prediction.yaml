@@ -1,0 +1,46 @@
+# Template for the time-prediction task. Copy it, replace every <placeholder>,
+# then run:
+#
+#   uv run python -m sourceworldbench_eval_harness.prediction.predict  <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.evaluation.evaluate <your-config>.yaml
+#
+# One evaluation scores every question the prediction file answers, so the metrics
+# file holds `seconds_*` through `budget_300s_*` side by side. A baseline names one runtime and
+# the other four answers are derived from it, so every column describes the same
+# model. `seconds` is scored scale-free (`seconds_log10_error`, `seconds_within_factor_2`): the target
+# spans seconds to minutes, so an absolute error would be set by the slowest instance
+# alone. `seconds_log_slope` is the one to read on a baseline: a fixed guess scores 0 there
+# whatever its error, so it separates a calibration problem from no signal at all.
+
+shared:
+  output_root: outputs/time_prediction
+  output_tag: <tag>         # artifacts land in `<output_root>_<tag>`, so give each
+                            # model its own and parallel runs stay apart
+
+task:
+  name: time_prediction
+  id_field: instance_id     # column identifying one patched repo state + workload
+  require_full_coverage: true   # every dataset instance must be answered
+
+load:
+  name: anonymous-research-730875/sourceworldbench-time-prediction
+  split: test
+  revision: v0.2.0          # pinned: unpinned runs track `main`, so a dataset push
+                            # silently changes the eval set. The resolved commit is
+                            # recorded in the sidecar either way.
+
+predict:
+  model: <model>            # constant_seconds | random_seconds | oracle
+  params: {}                # constant_seconds takes { seconds }, random_seconds
+                            # { seed, low, high }; add `questions: [seconds]` to
+                            # answer a subset
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-time-prediction  # task grouping key (shown as its slug)
+  model: <model>                                   # name shown on the leaderboard

@@ -1,0 +1,33 @@
+# Baseline: random_bytes on sourceworldbench-memory-prediction.
+# Copied from configs/templates/memory/prediction.yaml.
+
+shared:
+  output_root: outputs/memory_prediction
+  output_tag: random_bytes
+
+task:
+  name: memory_prediction
+  id_field: instance_id
+  require_full_coverage: true
+
+load:
+  name: anonymous-research-730875/sourceworldbench-memory-prediction
+  split: test
+  revision: 0.2.0
+  # TODO: memory datasets have no `v`-prefixed tags on the
+  # Hub. Once `v` is tagged there, switch to it so versioning
+  # is consistent everywhere
+
+predict:
+  model: random_bytes
+  params: { seed: 42, low: 100000, high: 10000000000 }
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-memory-prediction
+  model: random_bytes

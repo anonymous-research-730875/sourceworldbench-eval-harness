@@ -1,0 +1,39 @@
+# Score single-test-status predictions produced outside this harness.
+#
+# Point `predict.external_input` at your .jsonl and run predict -> evaluate.
+# `predict` shape-checks your file and writes a normalised extract; `evaluate`
+# rebuilds ground truth from the dataset and scores it. See
+# docs/SINGLE_TEST_STATUS_FORMAT.md for the row format.
+#
+#   uv run python -m sourceworldbench_eval_harness.prediction.predict  <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.evaluation.evaluate <your-config>.yaml
+#   uv run python -m sourceworldbench_eval_harness.leaderboard.push    <your-config>.yaml
+
+shared:
+  output_root: outputs/single_test_status_external
+  output_tag: <tag>               # artifacts land in `<output_root>_<tag>`
+
+task:
+  name: single_test_status
+  id_field: instance_id
+  require_full_coverage: true     # set false to score a partial submission
+
+load:
+  name: anonymous-research-730875/sourceworldbench-single-test-status
+  split: test
+  revision: v0.2.0                # MUST match the version you predicted on
+
+predict:
+  external_input: <path/to/predictions.jsonl>    # your file; `~` expands
+  output: predictions.jsonl                      # the extract that gets scored
+  # params: { questions: [outcome] }             # keep only these questions
+  # params: { question_fields: { outcome: predicted_label } }   # your column names
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-single-test-status  # task grouping key (shown as its slug)
+  model: <model>                                     # name shown on the leaderboard

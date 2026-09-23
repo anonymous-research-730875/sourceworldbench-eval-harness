@@ -1,0 +1,33 @@
+# Baseline: most_called on sourceworldbench-memory-hotspots.
+# Copied from configs/templates/memory/hotspot.yaml.
+
+shared:
+  output_root: outputs/memory_hotspot
+  output_tag: most_called
+
+task:
+  name: memory_hotspot
+  id_field: instance_id
+  require_full_coverage: true
+
+load:
+  name: anonymous-research-730875/sourceworldbench-memory-hotspots
+  split: test
+  revision: 0.2.0
+  # TODO: memory datasets have no `v`-prefixed tags on the
+  # Hub. Once `v` is tagged there, switch to it so versioning
+  # is consistent everywhere
+
+predict:
+  model: most_called
+  params: {}
+  output: predictions.jsonl
+
+evaluate:
+  input: predictions.jsonl
+  output: metrics.json
+
+leaderboard:
+  input: metrics.json
+  dataset: anonymous-research-730875/sourceworldbench-memory-hotspots
+  model: most_called
