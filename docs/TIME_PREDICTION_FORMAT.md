@@ -47,6 +47,34 @@ Computed over every instance at once, so there is no `_scored` companion. **It i
 ranking metric**: a submission is judged on the predictions it made, not on the ones a
 correction it never applied would have made.
 
+`seconds_calibrated_log10_error` frees the scale as well as the offset: the mean absolute
+residual after the best affine remapping of the predictions in log space, intercept fitted
+freely and slope fitted but floored at zero. The three errors are nested — the raw one fixes
+the map at identity, the debiased one frees the intercept, this one frees the slope too — so
+
+    calibrated <= debiased <= raw
+
+always holds, and the differences are what to read. Raw minus debiased is what correcting a
+uniform offset would buy; debiased minus calibrated is what correcting a compressed or
+stretched dynamic range would buy on top; what remains is scatter no remapping can reach. A
+model whose predictions track the target but span too narrow a range — the common failure on
+this task — is charged by the first two and excused by the third. **Also not ranked**, for the
+same reason.
+
+**The slope cannot go negative.** A negative slope reverses the predictions, so without the
+floor a model that ranks workloads backwards would be handed the score of the reversal it
+never submitted. The constraint caps such a model at slope 0 — the best constant — alongside
+every other model carrying no usable signal. Where a model is right-way-round the floor costs
+nothing, the unconstrained optimum being positive already, and slope 1 stays in the family
+regardless, which is why the nesting above survives the constraint.
+
+Freeing the slope gives this figure a **ceiling**: a model with no signal at all is remapped
+to the best constant, so nothing can score worse than the best-constant error, and models
+that differ widely on the raw figure can land on the same calibrated one. A value at that
+ceiling is the finding — it says the predictions carry no usable information about which
+instance is larger — but it is also why the calibrated column compresses a field rather than
+ordering it.
+
 `seconds_log_slope` and `seconds_log_intercept` come from a least-squares fit of
 `log10(predicted)` on `log10(actual)` over every instance at once (so no `_scored`
 companion). They separate two failures the error metrics report identically: slope near 1

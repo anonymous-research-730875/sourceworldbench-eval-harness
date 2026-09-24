@@ -130,6 +130,23 @@ def test_debiased_error_separates_a_uniform_offset_from_scatter():
     assert flat_score(oracle_rows())["seconds_debiased_log10_error"] == pytest.approx(0.0)
 
 
+def test_calibrated_error_frees_the_scale_where_debiasing_only_shifts():
+    """Predictions compressed toward the middle: no single offset fixes a dynamic range,
+    so the calibrated figure is the only one that reads the ordering as intact."""
+    squashed = [row(i, seconds=CASES[i]["seconds"] ** 0.5) for i in CASES]
+    results = flat_score(squashed)
+
+    assert results["seconds_log10_error"] > results["seconds_debiased_log10_error"]
+    assert results["seconds_calibrated_log10_error"] == pytest.approx(0.0, abs=1e-9)
+
+    # And a uniform offset, which debiasing already removes, leaves nothing further.
+    offset = flat_score([row(i, seconds=CASES[i]["seconds"] * 10) for i in CASES])
+    assert offset["seconds_debiased_log10_error"] == pytest.approx(0.0)
+    assert offset["seconds_calibrated_log10_error"] == pytest.approx(0.0)
+
+    assert flat_score(oracle_rows())["seconds_calibrated_log10_error"] == pytest.approx(0.0)
+
+
 def test_the_flat_seconds_figures_are_none_until_a_line_is_determined():
     single = flat_score([row(FAST_ID, seconds=2.0)], require_full_coverage=False)
     assert single["seconds_log_slope"] is None  # one point determines no line

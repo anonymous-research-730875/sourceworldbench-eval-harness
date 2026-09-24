@@ -101,7 +101,8 @@ class TimePrediction(QuestionTask[TimePredictionTaskConfig]):
 
     def seconds_metrics(self, rows: list[dict[str, Any]], reference: Any) -> dict[str, Any]:
         """Scale-free per-instance error, plus the figures needing every instance at once:
-        what error survives recalibration, and whether the magnitudes track the real ones."""
+        what error survives correcting an offset, what survives correcting the scale too,
+        and whether the magnitudes track the real ones."""
         predicted = [float(row[SECONDS]) for row in rows]
         expected = [reference[row[self.id_field]]["seconds"] for row in rows]
 
@@ -116,6 +117,7 @@ class TimePrediction(QuestionTask[TimePredictionTaskConfig]):
         return self.flat_aggregate(
             per_instance,
             debiased_log10_error=metrics.debiased_log10_error(predicted, expected),
+            calibrated_log10_error=metrics.calibrated_log10_error(predicted, expected),
             log_slope=slope,
             log_intercept=intercept,
         )

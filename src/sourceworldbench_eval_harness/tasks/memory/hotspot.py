@@ -188,12 +188,13 @@ class MemoryHotspot(QuestionTask[MemoryHotspotTaskConfig]):
     def retrieval_scores(
         answer: Sequence[Any], truth: dict[str, Any], axis: HotspotAxis, k: int
     ) -> tuple[dict[str, float | None], tuple[float, float]]:
-        """Four scores because each is blind to something: a reversed answer still scores well
-        on `ndcg_macro` and -1 on `somers_d`, and a single heavy hit separates `hit_rate` from
-        `bytes_captured`.
+        """Each score is blind to something: a reversed answer still scores well on
+        `ndcg_macro` and -1 on `somers_d`, and a single heavy hit separates `hit_rate` from
+        `bytes_captured`. `tau_b` is `somers_d`'s numerator over a tie-discounted denominator,
+        reported because it is the figure quoted elsewhere.
 
         At `k = 1` there is no order to correlate and `bytes_captured` would restate `hit_rate`,
-        so both are dropped.
+        so the ranking scores and `bytes_captured` are dropped.
         """
         ranking = truth["axes"][axis.name]
         weights = ranking["weights"]
@@ -206,4 +207,5 @@ class MemoryHotspot(QuestionTask[MemoryHotspotTaskConfig]):
         if k > 1:
             scores["bytes_captured"] = metrics.weight_captured(found, weights, expected)
             scores["somers_d"] = metrics.weight_rank_somers_d(found, weights)
+            scores["tau_b"] = metrics.weight_rank_tau_b(found, weights)
         return scores, metrics.weighted_dcg_at_k(found, weights, expected)

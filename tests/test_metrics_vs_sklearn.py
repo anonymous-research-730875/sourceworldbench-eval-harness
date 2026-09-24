@@ -7,6 +7,7 @@ instances, absent classes, single-class predictions.
 
 import math
 import random
+import statistics
 
 import pytest
 from sklearn.metrics import (
@@ -178,6 +179,98 @@ def test_debiased_log10_error_is_none_without_a_usable_pair():
         metrics.debiased_log10_error([1.0, 2.0], [1.0])
 
 
+def _brute_force_lad(predicted, expected):
+    """The L1 line passes through two of the points, so trying every pair finds the exact
+    optimum. Quadratic, hence a test-only check on small inputs.
+
+    Constrained to a non-negative slope, as `calibrated_log10_error` is. The objective is
+    convex, so the constrained optimum is the unconstrained one where that is non-negative
+    and slope 0 otherwise — which is why clipping the candidates and adding 0 covers it.
+    """
+    points = [(math.log10(g), math.log10(t)) for g, t in zip(predicted, expected) if g > 0 and t > 0]
+    pairwise = [
+        (points[j][1] - points[i][1]) / (points[j][0] - points[i][0])
+        for i in range(len(points))
+        for j in range(i + 1, len(points))
+        if points[j][0] != points[i][0]
+    ]
+    slopes = [0.0, 1.0] + [slope for slope in pairwise if slope >= 0]
+    costs = []
+    for slope in slopes:
+        intercept = statistics.median([y - slope * x for x, y in points])
+        costs.append(sum(abs(slope * x + intercept - y) for x, y in points) / len(points))
+    return min(costs)
+
+
+def test_calibrated_log10_error_frees_the_scale_as_well_as_the_offset():
+    truth = [1.0, 10.0, 100.0, 1000.0]
+
+    # Magnitudes compressed to the square root: no offset fixes a wrong dynamic range,
+    # so debiasing gets only part of the way and calibration gets all of it.
+    squashed = [t**0.5 for t in truth]
+    assert metrics.mean([metrics.log10_error(g, t) for g, t in zip(squashed, truth)]) == pytest.approx(0.75)
+    assert metrics.debiased_log10_error(squashed, truth) == pytest.approx(0.5)
+    assert metrics.calibrated_log10_error(squashed, truth) == pytest.approx(0.0)
+
+    assert metrics.calibrated_log10_error(truth, truth) == pytest.approx(0.0)
+
+    # Every prediction identical: the slope is unidentifiable, but the best constant is
+    # not, so a figure is still reported rather than None.
+    assert metrics.calibrated_log10_error([5.0] * 4, truth) == pytest.approx(1.0)
+
+
+def test_calibrated_log10_error_matches_an_exact_l1_fit():
+    """The search is iterative, so it is checked against a brute force that is not."""
+    rng = random.Random(11)
+    for _ in range(CASES):
+        n = rng.randint(2, 18)
+        truth = [10 ** rng.uniform(-1, 3) for _ in range(n)]
+        guess = [t ** rng.uniform(0, 1.5) * 10 ** rng.uniform(-1, 1) for t in truth]
+        assert metrics.calibrated_log10_error(guess, truth) == pytest.approx(_brute_force_lad(guess, truth), abs=1e-9)
+
+
+def test_calibrated_log10_error_will_not_reverse_a_backwards_model():
+    """The slope floor. Predictions ordered backwards would fit a negative slope perfectly;
+    the constraint caps them at slope 0, the best constant, instead of handing them the score
+    of a reversal they never submitted."""
+    truth = [1.0, 10.0, 100.0, 1000.0]
+    backwards = list(reversed(truth))
+
+    best_constant = metrics.calibrated_log10_error([5.0] * 4, truth)
+    assert metrics.calibrated_log10_error(backwards, truth) == pytest.approx(best_constant)
+
+    # Unconstrained, that answer would fit exactly — which is what the floor rules out.
+    unconstrained = min(
+        sum(abs(slope * math.log10(g) + b - math.log10(t)) for g, t in zip(backwards, truth)) / len(truth)
+        for slope in (-1.0,)
+        for b in (statistics.median([math.log10(t) - slope * math.log10(g) for g, t in zip(backwards, truth)]),)
+    )
+    assert unconstrained == pytest.approx(0.0)
+
+    # A right-way-round model is untouched by the floor.
+    assert metrics.calibrated_log10_error([t**0.5 for t in truth], truth) == pytest.approx(0.0)
+
+
+def test_the_three_log10_errors_are_nested():
+    """Each frees a parameter the one before fixed, so the chain can only go downwards."""
+    rng = random.Random(29)
+    for _ in range(CASES):
+        n = rng.randint(2, 25)
+        truth = [10 ** rng.uniform(-1, 3) for _ in range(n)]
+        guess = [t ** rng.uniform(0, 1.5) * 10 ** rng.uniform(-1, 1) for t in truth]
+        raw = metrics.mean([metrics.log10_error(g, t) for g, t in zip(guess, truth)])
+        assert metrics.calibrated_log10_error(guess, truth) <= metrics.debiased_log10_error(guess, truth) + 1e-12
+        assert metrics.debiased_log10_error(guess, truth) <= raw + 1e-12
+
+
+def test_calibrated_log10_error_is_none_without_a_line_to_fit():
+    assert metrics.calibrated_log10_error([], []) is None
+    assert metrics.calibrated_log10_error([2.0], [1.0]) is None  # one point fits perfectly
+    assert metrics.calibrated_log10_error([0.0, -1.0], [1.0, 10.0]) is None
+    with pytest.raises(ValueError):
+        metrics.calibrated_log10_error([1.0, 2.0], [1.0])
+
+
 def test_log_fit_matches_scipy():
     """Cross-checked like the rest: the least-squares fit is hand-rolled, so it is
     compared against an independent implementation over the scale the target spans."""
@@ -222,6 +315,101 @@ def test_somers_d_matches_scipy():
         checked += 1
     assert checked > 100
     assert tied > 50, "the tie handling went untested"
+
+
+def test_kendall_tau_b_matches_scipy():
+    """Same tie-heavy shape as the Somers' D check, since the denominator is the only
+    difference between them and ties are what it reacts to."""
+    from scipy.stats import kendalltau
+
+    rng = random.Random(18)
+    tied = checked = 0
+    for _ in range(CASES):
+        n = rng.randint(2, 20)
+        predicted = list(range(n))
+        rng.shuffle(predicted)
+        truth = [float(rng.randint(1, max(2, n // 3))) for _ in range(n)]
+        theirs = kendalltau(truth, predicted, variant="b")
+        ours = metrics.kendall_tau_b(truth, predicted)
+        if math.isnan(theirs.statistic):
+            assert ours is None  # a constant ordering correlates with nothing
+            continue
+        assert ours == pytest.approx(theirs.statistic)
+        tied += len(set(truth)) < n
+        checked += 1
+    assert checked > 100
+    assert tied > 50, "the tie handling went untested"
+
+
+def test_kendall_tau_b_is_symmetric_where_somers_d_is_not():
+    """The pair that separates them: three items, two tied in the truth. Somers' D drops
+    that pair and scores 2/2; tau-b keeps it in the denominator as a square root."""
+    truth = [1.0, 1.0, 2.0]
+    predicted = [3, 2, 1]
+
+    assert metrics.kendall_tau_b(truth, predicted) == pytest.approx(metrics.kendall_tau_b(predicted, truth))
+    assert metrics.somers_d(truth, predicted) != pytest.approx(metrics.somers_d(predicted, truth))
+
+
+def test_kendall_tau_b_cannot_reach_one_when_the_truth_ties():
+    """The ceiling that is the reason `somers_d` is the ranked figure: a flawless answer
+    caps at `sqrt(1 - Ty/n0)`, and that cap moves with the instance's tie count."""
+    # Two of three pairs orderable, so a perfect answer caps at sqrt(2/3).
+    truth = [1.0, 1.0, 2.0]
+    assert metrics.somers_d(truth, [1, 1, 2]) == 1.0
+    assert metrics.kendall_tau_b(truth, [1, 1, 2]) == pytest.approx(1.0)  # predicted ties too
+    assert metrics.kendall_tau_b(truth, [1, 2, 3]) == pytest.approx(math.sqrt(2 / 3))
+
+    # No ties at all: the two agree exactly.
+    clean = [1.0, 2.0, 3.0]
+    assert metrics.kendall_tau_b(clean, [1, 2, 3]) == pytest.approx(metrics.somers_d(clean, [1, 2, 3]))
+
+
+def test_kendall_tau_b_spans_minus_one_to_one():
+    ascending = [1.0, 2.0, 3.0, 4.0]
+    assert metrics.kendall_tau_b(ascending, ascending) == 1.0
+    assert metrics.kendall_tau_b(ascending, list(reversed(ascending))) == -1.0
+    assert metrics.kendall_tau_b([1, 2, 3, 4], [1, 4, 3, 2]) == pytest.approx(0.0)
+
+
+def test_kendall_tau_b_is_none_when_either_side_orders_nothing():
+    assert metrics.kendall_tau_b([1.0, 1.0, 1.0], [3.0, 1.0, 2.0]) is None
+    assert metrics.kendall_tau_b([3.0, 1.0, 2.0], [1.0, 1.0, 1.0]) is None  # symmetric, unlike somers_d
+    assert metrics.kendall_tau_b([1.0], [2.0]) is None
+    assert metrics.kendall_tau_b([], []) is None
+    with pytest.raises(ValueError):
+        metrics.kendall_tau_b([1.0, 2.0], [1.0])
+
+
+def test_weight_rank_tau_b_tracks_its_somers_d_twin_down_to_the_tie_discount():
+    """Listed positions never tie, so the two differ only by the truth's ties."""
+    weights = {"a": 3.0, "b": 2.0, "c": 1.0}
+    assert metrics.weight_rank_tau_b(["a", "b", "c"], weights) == 1.0
+    assert metrics.weight_rank_tau_b(["c", "b", "a"], weights) == -1.0
+    assert metrics.weight_rank_tau_b(["a"], weights) is None
+    assert metrics.weight_rank_tau_b([], weights) is None
+
+    # Two of the three weigh the same, so tau-b takes the discount and Somers' D does not.
+    tied = {"a": 3.0, "b": 1.0, "c": 1.0}
+    assert metrics.weight_rank_somers_d(["a", "b", "c"], tied) == 1.0
+    assert metrics.weight_rank_tau_b(["a", "b", "c"], tied) == pytest.approx(math.sqrt(2 / 3))
+
+
+def test_weight_rank_tau_b_shrinks_toward_zero_so_a_mean_can_invert():
+    """The tie discount is multiplicative, so it lifts a negative score instead of lowering
+    it. Averaging instances of both signs can therefore put the tau-b column above the
+    Somers' D one, though every individual magnitude is smaller."""
+    tied = {"a": 3.0, "b": 1.0, "c": 1.0}
+    assert metrics.weight_rank_tau_b(["a", "b", "c"], tied) == pytest.approx(math.sqrt(2 / 3))
+    assert metrics.weight_rank_tau_b(["b", "c", "a"], tied) == pytest.approx(-math.sqrt(2 / 3))
+    assert metrics.weight_rank_somers_d(["b", "c", "a"], tied) == -1.0
+
+    clean = {"a": 3.0, "b": 2.0, "c": 1.0}
+    instances = [(["a", "b", "c"], clean), (["b", "c", "a"], tied)]
+    somers = metrics.mean([metrics.weight_rank_somers_d(p, w) for p, w in instances])
+    tau = metrics.mean([metrics.weight_rank_tau_b(p, w) for p, w in instances])
+    assert somers == pytest.approx(0.0)
+    assert tau > somers
 
 
 def test_somers_d_conditions_on_its_first_argument():

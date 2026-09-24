@@ -187,6 +187,19 @@ def test_somers_d_calls_a_reversal_what_ndcg_still_scores_generously():
     assert backwards["exclusive_top5_ndcg_macro"] > 0.5  # the NDCG floor is not a floor
 
 
+def test_tau_b_is_reported_beside_somers_d_and_never_above_it():
+    """The same ordering read two ways. They agree when nothing ties; where the truth ties,
+    tau-b takes the discount that keeps it off 1.0, which is why it is not the ranked figure.
+    """
+    expected = keys(FIRST_ID, 5)
+    perfect = flat_score([row(FIRST_ID, exclusive_top5=expected)], require_full_coverage=False)
+    backwards = flat_score([row(FIRST_ID, exclusive_top5=list(reversed(expected)))], require_full_coverage=False)
+
+    assert perfect["exclusive_top5_tau_b"] <= perfect["exclusive_top5_somers_d"] + 1e-12
+    assert backwards["exclusive_top5_tau_b"] >= backwards["exclusive_top5_somers_d"] - 1e-12
+    assert backwards["exclusive_top5_tau_b"] < 0  # a reversal is negative either way
+
+
 def test_top1_reports_neither_time_captured_nor_somers_d():
     """With one expected function the weighted share is 1 exactly when the unweighted one
     is, so `time_captured` would be `hit_rate` under a second name; and a single function

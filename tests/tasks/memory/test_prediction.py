@@ -137,6 +137,23 @@ def test_debiased_error_separates_a_uniform_offset_from_scatter():
     assert flat_score(oracle_rows())["bytes_debiased_log10_error"] == pytest.approx(0.0)
 
 
+def test_calibrated_error_frees_the_scale_where_debiasing_only_shifts():
+    """Predictions compressed toward the middle: no single offset fixes a dynamic range,
+    so the calibrated figure is the only one that reads the ordering as intact."""
+    squashed = [row(i, bytes=CASES[i]["bytes"] ** 0.5) for i in CASES]
+    results = flat_score(squashed)
+
+    assert results["bytes_log10_error"] > results["bytes_debiased_log10_error"]
+    assert results["bytes_calibrated_log10_error"] == pytest.approx(0.0, abs=1e-9)
+
+    # And a uniform offset, which debiasing already removes, leaves nothing further.
+    offset = flat_score([row(i, bytes=CASES[i]["bytes"] * 10) for i in CASES])
+    assert offset["bytes_debiased_log10_error"] == pytest.approx(0.0)
+    assert offset["bytes_calibrated_log10_error"] == pytest.approx(0.0)
+
+    assert flat_score(oracle_rows())["bytes_calibrated_log10_error"] == pytest.approx(0.0)
+
+
 def test_log_slope_separates_a_calibration_error_from_no_signal():
     """Both models are badly wrong; only one of them understood relative cost."""
     calibrated = [row(i, bytes=CASES[i]["bytes"] * 100) for i in CASES]  # uniformly 100x high

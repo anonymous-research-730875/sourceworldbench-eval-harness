@@ -190,6 +190,88 @@ def debiased_log10_error(predicted: Sequence[float], expected: Sequence[float]) 
     return sum(abs(residual - bias) for residual in residuals) / len(residuals)
 
 
+# `calibrated_log10_error` searches for a slope rather than solving for one: the L1 line
+# has no closed form, and its objective is convex but not differentiable, so a derivative
+# method would have to special-case every point the line passes through. Golden-section
+# needs only that the objective is convex, which it is — a sum of absolute values of affine
+# functions, still convex after the intercept is minimised out.
+_GOLDEN_RATIO = (math.sqrt(5) - 1) / 2
+_SEARCH_STEPS = 100
+_MAX_WIDENINGS = 60
+
+
+def _l1_cost(points: Sequence[tuple[float, float]], slope: float) -> float:
+    """Mean absolute residual of the best line with this slope. The intercept minimising
+    an absolute deviation is the median of the offsets, as it is for a constant."""
+    intercept = median([y - slope * x for x, y in points])
+    return sum(abs(slope * x + intercept - y) for x, y in points) / len(points)
+
+
+def _bracket_minimum(points: Sequence[tuple[float, float]], centre: float) -> tuple[float, float]:
+    """An interval around `centre` whose ends are both at least as costly as `centre`, which
+    for a convex objective is one containing a minimum. Widens geometrically, and terminates
+    at once when the objective is flat — which it is when every prediction is identical, the
+    slope then being unidentifiable though the cost is not."""
+    span = 1.0
+    middle = _l1_cost(points, centre)
+    for _ in range(_MAX_WIDENINGS):
+        if _l1_cost(points, centre - span) >= middle <= _l1_cost(points, centre + span):
+            break
+        span *= 2
+    return centre - span, centre + span
+
+
+def calibrated_log10_error(predicted: Sequence[float], expected: Sequence[float]) -> float | None:
+    """Mean absolute residual in log space after the best affine remapping of the predictions
+    — intercept free, slope free but **not negative**. `None` below two usable pairs.
+    Non-positive pairs are dropped, having no logarithm.
+
+    The last of three nested questions. `log10_error` fixes the map at identity,
+    `debiased_log10_error` frees the intercept, and this frees the slope too, so each is the
+    L1 optimum over a family containing the one before and
+
+        calibrated <= debiased <= raw
+
+    always holds. Read the differences: raw minus debiased is what correcting a uniform
+    offset would buy, debiased minus calibrated is what correcting a compressed or stretched
+    dynamic range would buy on top, and what remains is scatter no remapping can reach.
+
+    The slope floor at zero is what stops the remapping rewarding an answer it should not.
+    A negative slope reverses the predictions, so a model that ranks workloads backwards
+    would be handed the score of the reversal it never submitted; the constraint caps such
+    a model at slope 0, which is the best constant, alongside every other model carrying no
+    usable signal. It costs nothing where a model is right-way-round, the unconstrained
+    optimum then being positive already.
+
+    Fitted under the same absolute-error criterion the figure is reported in, which is what
+    makes the chain hold — `log_fit` minimises squared error instead, so calibrating by its
+    slope can score worse than not calibrating at all. Slope 1 stays in the family whatever
+    the constraint, which is why the chain survives it.
+    """
+    if len(predicted) != len(expected):
+        raise ValueError(f"{len(predicted)} predictions but {len(expected)} targets")
+    points = [
+        (math.log10(guess), math.log10(truth))
+        for guess, truth in zip(predicted, expected, strict=True)
+        if guess > 0 and truth > 0
+    ]
+    if len(points) < 2:
+        return None
+
+    low, high = _bracket_minimum(points, 1.0)
+    low = max(low, 0.0)  # the slope floor; the objective is convex, so clipping the bracket suffices
+    for _ in range(_SEARCH_STEPS):
+        left = high - _GOLDEN_RATIO * (high - low)
+        right = low + _GOLDEN_RATIO * (high - low)
+        if _l1_cost(points, left) < _l1_cost(points, right):
+            high = right
+        else:
+            low = left
+    # Slope 1 is in the family by definition, so keeping it as a candidate makes the
+    # inequality above hold exactly rather than to the search's tolerance.
+    return min(_l1_cost(points, (low + high) / 2), _l1_cost(points, 1.0))
+
+
 # The set-retrieval metrics judge an answer against an expected set of items rather than
 # against a relevance vector. The last of these reads order too, which it can only do
 # because the weights make one expected item worth more than another.
@@ -277,7 +359,9 @@ def somers_d(truth: Sequence[float], predicted: Sequence[float]) -> float | None
     scoring either order as an error would tax noise, while a pair the truth does separate is
     always asked — a predicted tie there is a wrong answer, not a discount. It is also what
     lets a flawless answer reach 1.0, where `tau-b` caps at `sqrt(1 - Ty/n0)`, a ceiling that
-    moves with each instance's tie count and makes columns incomparable.
+    moves with each instance's tie count and makes columns incomparable. `kendall_tau_b` is
+    reported beside this one anyway, being the figure external work quotes; that ceiling is
+    why this is the one to rank on.
 
     Argument order carries meaning, as in `scipy.stats.somersd`: this conditions on the first.
     """
@@ -319,6 +403,62 @@ def weight_rank_somers_d(predicted: Sequence[Any], weights: dict[Any, float]) ->
     # Negated so that listed-earlier is the larger value, matching weighs-more.
     positions = [-index for index in range(len(unique))]
     return somers_d([weights.get(item, 0.0) for item in unique], positions)
+
+
+def kendall_tau_b(truth: Sequence[float], predicted: Sequence[float]) -> float | None:
+    """Kendall's tau-b between two orderings: the same concordant-minus-discordant count as
+    `somers_d`, over a denominator that discounts ties on **both** sides. `None` below two
+    items, or when either ordering is constant.
+
+    Symmetric, unlike `somers_d` — swapping the arguments returns the same number, so there
+    is no conditioning to get the wrong way round.
+
+    Reported because it is what the rank-correlation literature and `scipy.stats.kendalltau`
+    quote, which makes these columns comparable with numbers computed elsewhere. It is not
+    the figure to rank on: discounting the truth's ties in the denominator caps a flawless
+    answer at `sqrt(1 - Ty/n0)` rather than 1.0, and since that ceiling moves with each
+    instance's tie count, two instances' tau-b values are not on the same scale. `somers_d`
+    is the same numerator over a fixed denominator, and reaches 1.0 whatever the ties.
+    """
+    if len(truth) != len(predicted):
+        raise ValueError(f"paired vectors must be the same length, got {len(truth)} and {len(predicted)}")
+    if len(truth) < 2:
+        return None
+
+    concordant = discordant = 0
+    for i in range(len(truth)):
+        for j in range(i + 1, len(truth)):
+            actual, claimed = truth[i] - truth[j], predicted[i] - predicted[j]
+            if actual == 0 or claimed == 0:
+                continue
+            if (actual > 0) == (claimed > 0):
+                concordant += 1
+            else:
+                discordant += 1
+
+    pairs = len(truth) * (len(truth) - 1) // 2
+    denominator = math.sqrt((pairs - _tie_pairs(truth)) * (pairs - _tie_pairs(predicted)))
+    if denominator == 0:  # one side orders nothing, so there was nothing to agree about
+        return None
+    return (concordant - discordant) / denominator
+
+
+def weight_rank_tau_b(predicted: Sequence[Any], weights: dict[Any, float]) -> float | None:
+    """`kendall_tau_b` between the order `predicted` lists items in and the order their weights
+    imply; `None` below two distinct items, or when they all weigh the same.
+
+    The tau-b companion to `weight_rank_somers_d`, reading the same sequence the same way.
+    Listed positions never tie, so the two differ only by the truth's ties: this is the other
+    pulled **toward zero** by `sqrt(1 - Ty/n0)`, which lifts a negative score rather than
+    lowering it. Only the magnitudes are ordered, so a mean of these over several instances
+    can sit either side of the same mean of `weight_rank_somers_d`.
+    """
+    unique = list(dict.fromkeys(predicted))
+    if len(unique) < 2:
+        return None
+    # Negated so that listed-earlier is the larger value, matching weighs-more.
+    positions = [-index for index in range(len(unique))]
+    return kendall_tau_b([weights.get(item, 0.0) for item in unique], positions)
 
 
 def micro_ndcg(gains: Sequence[tuple[float, float]]) -> float | None:

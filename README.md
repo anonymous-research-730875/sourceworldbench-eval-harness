@@ -108,8 +108,9 @@ uv run python -m sourceworldbench_eval_harness.evaluation.evaluate configs/basel
 `seconds` is scored **scale-free** — the target spans seconds to minutes, so an absolute
 error would be set by the slowest instance alone. `seconds_log10_error` is the figure
 it is ranked on, with `seconds_within_factor_2` reading how often the answer was
-usable at all and `seconds_debiased_log10_error` reading what error would survive
-correcting a systematic offset. Why each metric is the one chosen:
+usable at all. `seconds_debiased_log10_error` and `seconds_calibrated_log10_error` read
+what error would survive correcting a systematic offset, and correcting the scale on top
+of it. Why each metric is the one chosen:
 [`docs/TIME_PREDICTION_FORMAT.md`](docs/TIME_PREDICTION_FORMAT.md).
 
 ### Time-hotspot task
@@ -133,7 +134,8 @@ uv run python -m sourceworldbench_eval_harness.evaluation.evaluate configs/basel
 Counting functions, valuing them and ordering them differ, so `exclusive_top5` and
 `exclusive_top20` each report `hit_rate` for how much of the expected set was found,
 `time_captured` for how much of its time was accounted for, `ndcg_macro` for whether the
-ranking put the expensive ones first, and `somers_d` for whether what was named is in the
+ranking put the expensive ones first, and `somers_d` (with Kendall's `tau_b` beside it, for
+comparison with outside numbers) for whether what was named is in the
 right order. `exclusive_top1` reports only the first and third: one function has no order
 to correlate, and one expected function makes `time_captured` a second name for `hit_rate`.
 Time is skewed enough that finding one of five can capture most of the workload or almost 
@@ -163,8 +165,9 @@ total, so memory allocated and freed again during the test still counts. Budget 
 decimal, so `500MB` is 500 million bytes. `bytes` is scored **scale-free**, since the target
 spans megabytes to tens of gigabytes: `bytes_log10_error` is the figure it is ranked on, with
 `bytes_within_factor_1.25` and `_2` reading how often the answer was calibrated and how often
-it sized a machine correctly at all, and `bytes_debiased_log10_error` reading what error would
-survive correcting a systematic offset. Why each metric is the one chosen:
+it sized a machine correctly at all. `bytes_debiased_log10_error` and
+`bytes_calibrated_log10_error` read what error would survive correcting a systematic offset,
+and correcting the scale on top of it. Why each metric is the one chosen:
 [`docs/MEMORY_PREDICTION_FORMAT.md`](docs/MEMORY_PREDICTION_FORMAT.md).
 
 ### Memory-hotspot task

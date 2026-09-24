@@ -122,9 +122,9 @@ class MemoryPrediction(QuestionTask[MemoryPredictionTaskConfig]):
         return self.budget_metrics(question, rows, reference)
 
     def bytes_metrics(self, rows: list[dict[str, Any]], reference: Any) -> dict[str, Any]:
-        """Scale-free, because the target spans several orders of magnitude. The debiased
-        error and the fit need every instance at once, so neither has a per-instance
-        companion."""
+        """Scale-free, because the target spans several orders of magnitude. The two
+        recalibrated errors and the fit need every instance at once, so none of them has a
+        per-instance companion."""
         predicted = [float(row[BYTES]) for row in rows]
         expected = [reference[row[self.id_field]]["bytes"] for row in rows]
 
@@ -139,6 +139,7 @@ class MemoryPrediction(QuestionTask[MemoryPredictionTaskConfig]):
         return self.flat_aggregate(
             per_instance,
             debiased_log10_error=metrics.debiased_log10_error(predicted, expected),
+            calibrated_log10_error=metrics.calibrated_log10_error(predicted, expected),
             log_slope=slope,
             log_intercept=intercept,
         )

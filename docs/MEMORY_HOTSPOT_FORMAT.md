@@ -44,6 +44,7 @@ shorter than the question asks.
 | `bytes_captured` | how much of its *memory* was accounted for |
 | `ndcg_macro` | how much cost was surfaced early (top-heavy) |
 | `somers_d` | whether what was named is in the right order (**-1 to 1**) |
+| `tau_b` | the same, as Kendall's tau-b, for comparison with outside numbers (**-1 to 1**) |
 
 Rank on `hit_rate`, with `cumulative_top5` as the headline question; quote `bytes_captured`, which
 states a share of the profile directly. Read `hit_rate` and `bytes_captured` as a pair, because
@@ -69,6 +70,17 @@ byte-level coincidences and unrankable, so either order is accepted, while a tie
 can reach 1.0 at all, where tau-b caps it at a ceiling that moves with each instance's tie
 count. Argument order therefore carries meaning: `somers_d(truth, predicted)`, matching
 `scipy.stats.somersd`.
+
+`tau_b` is reported anyway, matching `scipy.stats.kendalltau(variant="b")`, because it is the
+coefficient the rank-correlation literature quotes and the one an outside number will have been
+computed as. Read it for comparison with such numbers, not for ranking: the moving ceiling above
+means two instances' values are not on the same scale, so `somers_d` stays the figure to rank on.
+Where nothing ties, the two are equal; where the truth ties, `tau_b` is `somers_d` shrunk
+**toward zero** by exactly `sqrt(1 - Ty/n0)` — so a negative instance moves up, not down. Because
+the reported figure is a macro mean over instances of both signs, each shrunk by its own tie
+count, the column can therefore sit either side of `somers_d`; only the per-instance magnitudes
+are ordered. It is symmetric, so unlike `somers_d` its argument order carries no meaning. Dropped
+at `top1` alongside `somers_d`.
 
 `ndcg_micro` is reported too: macro counts every instance equally though they hold unequal
 memory to win, micro weights an instance by what is at stake in it.

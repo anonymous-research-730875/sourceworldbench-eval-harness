@@ -205,12 +205,15 @@ class TimeHotspot(QuestionTask[TimeHotspotTaskConfig]):
         """One instance's answer to one question, with the gain pair `ndcg_micro` needs.
 
         `hit_rate` and `time_captured` read the answer as a set, counting functions and weighing
-        them by the time they cost. `ndcg_macro` and `somers_d` read it as a ranking and differ in
-        how: top-heavy and gain-weighted versus position-blind and order-only, which a perfectly
-        reversed answer separates — it still scores well on the first, and -1 on the second.
+        them by the time they cost. `ndcg_macro`, `somers_d` and `tau_b` read it as a ranking and
+        differ in how: top-heavy and gain-weighted versus position-blind and order-only, which a
+        perfectly reversed answer separates — it still scores well on the first, and -1 on the
+        second. `tau_b` is the same correlation as `somers_d` against a tie-discounted
+        denominator, reported because it is the figure quoted elsewhere.
 
-        Both are dropped at `k = 1`, with `time_captured`: one function has no order to correlate,
-        and one expected function makes `time_captured` a second name for `hit_rate`.
+        The ranking ones are dropped at `k = 1`, with `time_captured`: one function has no order
+        to correlate, and one expected function makes `time_captured` a second name for
+        `hit_rate`.
         """
         weights = truth["weights"]
         found = [key for key in (resolve(entry, truth["index"]) for entry in answer) if key is not None]
@@ -222,4 +225,5 @@ class TimeHotspot(QuestionTask[TimeHotspotTaskConfig]):
         if k > 1:
             scores["time_captured"] = metrics.weight_captured(found, weights, expected)
             scores["somers_d"] = metrics.weight_rank_somers_d(found, weights)
+            scores["tau_b"] = metrics.weight_rank_tau_b(found, weights)
         return scores, metrics.weighted_dcg_at_k(found, weights, expected)
